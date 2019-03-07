@@ -142,12 +142,17 @@ class FileRefs:
         self.functionTypes = functionTypes
 
 def removeComments(text):
+    comment_regex = re.compile('(?:\\/\\*(?=(?:[^"]*"[^"]*")*[^"]*$)(?:.|\\n)*?\\*\\/)|(?:\\/\\/(?=(?:[^"]*"[^"]*")*[^"]*$).*)')
+    commentChanges = [
+            (match.span()[0], match.span()[1] - match.span()[0])
+            for match in re.finditer(comment_regex, "/*test*/0123/*test*/456")
+    ]
     text = re.sub(
-       '(?:\\/\\*(?=(?:[^"]*"[^"]*")*[^"]*$)(.|\\n)*?\\*\\/)|(?:\\/\\/(?=(?:[^"]*"[^"]*")*[^"]*$).*)', 
-       '',
-       text
+        comment_regex,
+        '',
+        text
     )
-    return text
+    return (text, commentChanges)
 
 # Define a bunch of dictionaries to help resolve text to commands
 assignmentOperationsInt = {
@@ -695,6 +700,10 @@ def compileNode(node, loopParent=None, parentLoopCondition=None):
         print(node.__slots__)
         print()
 
+    for obj in nodeOut:
+        if isinstance(obj, Command):
+            obj.tags.append(id(node))
+
     return nodeOut
 
 def compileScript(func):
@@ -708,38 +717,10 @@ def compileScript(func):
             script += compileNode(node)
     script.insert(0, Command(2, [argCount, len(localVars)]))
     script.append(Command(3))
+    for obj in script:
+        if isinstance(obj, Command):
+            obj.tags.append(id(func))
     return script
-
-# Fill in function pointers, labels with locations rather than strings
-def resolveReferences(msc):
-    global refs
-    scriptPositions = []
-    labelPostions = {}
-    namedLabelPositions = []
-    currentPos = 0x10
-    for i,script in enumerate(msc.scripts):
-        namedLabelPositions.append({})
-        scriptPositions.append(currentPos)
-        for cmd in script.cmds:
-            if type(cmd) == Command:
-                cmd.commandPosition = currentPos
-                currentPos += (0 if cmd.command in [0xFFFE, 0xFFFF] else 1) + getSizeFromFormat(COMMAND_FORMAT[cmd.command])
-            elif type(cmd) == Label:
-                if cmd.name != None:
-                    namedLabelPositions[i][cmd.name] = currentPos
-                labelPostions[cmd] = currentPos
-    refs.scriptPositions = scriptPositions
-    for j,script in enumerate(msc.scripts):
-        for cmd in script.cmds:
-            if type(cmd) == Command:
-                for i,arg in enumerate(cmd.parameters):
-                    if type(arg) == str:
-                        if arg in namedLabelPositions[j]:
-                            cmd.parameters[i] = namedLabelPositions[j][arg]
-                        else:
-                            cmd.parameters[i] = scriptPositions[refs.functions.index(arg)]
-                    elif type(arg) == Label:
-                        cmd.parameters[i] = labelPostions[arg]
 
 # Thanks Triptych https://stackoverflow.com/questions/1265665/python-check-if-a-string-represents-an-int-without-using-try-except
 def _RepresentsInt(s):
@@ -755,64 +736,6 @@ def _RepresentsFloat(s):
         return True
     except:
         return False
-
-# Write as MSCSB format
-def writeToFile(msc):
-    global refs, args
-    currentPos = 0x10
-    for script in msc.scripts:
-        currentPos += script.size()
-
-    # Calculate string buffer size based on the longest string
-    maxStringLength = 0
-    for string in msc.strings:
-        if len(string) > maxStringLength:
-            maxStringLength = len(string)
-    if maxStringLength % 0x10 != 0:
-        maxStringLength += 0x10 - (maxStringLength % 0x10)
-
-    # Write file header
-    fileBytes = MSC_MAGIC
-    fileBytes += struct.pack('<L', currentPos)
-    fileBytes += struct.pack('<L', 0x10 if not 'main' in refs.functions else refs.scriptPositions[refs.functions.index('main')])
-    fileBytes += struct.pack('<L', len(msc.scripts))
-    fileBytes += struct.pack('<L', 0x16)#This probably doesn't matter?
-    fileBytes += struct.pack('<L', maxStringLength)
-    fileBytes += struct.pack('<L', len(msc.strings))
-    fileBytes += struct.pack('<L', 0)
-    fileBytes += struct.pack('<L', 0)
-    fileBytes += b'\x00' * 0x10
-
-    # Write each script
-    for script in msc.scripts:
-        for cmd in script:
-            if type(cmd) == Command:
-                for i in range(len(cmd.parameters)):
-                    if type(cmd.parameters[i]) == float:
-                        cmd.parameters[i] = struct.unpack('>L', struct.pack('>f', cmd.parameters[i]))[0]
-                fileBytes += cmd.write()
-
-    # Write padding
-    if len(fileBytes) % 0x10 != 0:
-        fileBytes += b'\x00' * (0x10 - (len(fileBytes) % 0x10))
-
-    # Write script positions (may be unused tbh)
-    for i in range(len(msc.scripts)):
-        fileBytes += struct.pack('<L',refs.scriptPositions[i])
-
-    # Write more padding
-    if len(fileBytes) % 0x10 != 0:
-        fileBytes += b'\x00' * (0x10 - (len(fileBytes) % 0x10))
-
-    # Write the strings (+ padding)
-    for string in msc.strings:
-        fileBytes += string.encode('utf-8')
-        fileBytes += b'\x00' * (maxStringLength - len(string))
-
-    # Write to file
-    filename = 'output.mscsb' if args.filename == None else args.filename
-    with open(filename, 'wb') as f:
-        f.write(fileBytes)
 
 def compileAST(ast):
     global args, msc, refs
@@ -840,36 +763,19 @@ def compileAST(ast):
         if isinstance(decl, c_ast.FuncDef):
             newScript = MscScript()
             newScript.cmds = compileScript(decl)
+            newScript.name = decl.decl.name
             msc.scripts.append(newScript)
-    resolveReferences(msc)
-    writeToFile(msc)
+
+    print(msc)
 
 # Parse and compile from a string
 def compileString(fileText):
-    global args, msc, refs
+    global args, msc, refs, commentChanges
     parser = c_parser.CParser()
-    text = removeComments(fileText)
+    text, commentChanges = removeComments(fileText)
+    print(text)
     ast = parser.parse(text, filename='<none>')
     compileAST(ast)
-
-def compileFile(filepath):
-    with open(filepath, 'r') as f:
-        return compileString(f.read())
-
-def preprocess(filepath):
-    global args
-    try:
-        process = Popen(["cpp" if args.preprocessor == None else args.preprocessor, filepath], stdout=PIPE)
-        (output, err) = process.communicate()
-        exit_code = process.wait()
-        if output != None:
-            output = output.decode('latin8').replace('\r\n', '\n')
-            return output
-    except:
-        pass
-
-    with open(filepath, 'r') as f:
-        return removeComments(f.read())
 
 # Compile contents of the file to a string
 def main(arguments):
@@ -886,7 +792,8 @@ def main(arguments):
     for file in args.files:
         if args.filename == None:
             args.filename = os.path.basename(os.path.splitext(file)[0]) + '.mscsb'
-        compileString(preprocess(file))
+        with open(file, 'r') as f:
+            compileString(f.read())
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="Compile msC to MSC bytecode")

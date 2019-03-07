@@ -359,6 +359,7 @@ class Command:
         self.paramSize = 0
         self.commandPosition = 0
         self.debugString = None
+        self.tags = []
 
     def __len__(self):
         return getSizeFromFormat(COMMAND_FORMAT[self.command]) + 1
@@ -404,7 +405,7 @@ class Command:
             com += (37 - len(com)) * ' '
         if self.debugString != None:
             return com+self.strParams()+'   #'+self.debugString
-        return com+self.strParams()
+        return f"#{str([hex(i) for i in self.tags])}\n"+com+self.strParams()
 
 class MscScript:
     def __init__(self):
