@@ -285,7 +285,7 @@ def isCommandFloat(cmd, lookingFor):
 
 # Take a abstract syntax tree node and recursively compile it
 def compileNode(node, loopParent=None, parentLoopCondition=None):
-    global refs, localVars, localVarTypes, args, xmlInfo
+    global refs, localVars, localVarTypes, args, xmlInfo, nodeRanges
 
     nodeOut = []
 
@@ -322,6 +322,7 @@ def compileNode(node, loopParent=None, parentLoopCondition=None):
                 i += 1
 
     t = type(node)
+    nodeRanges[hex(id(node))] = node.coord.line
 
     # Check the type, depending on which type it is compile as it should
     # If an argument needs to be compiled, recursively call compile on the node
@@ -700,9 +701,10 @@ def compileNode(node, loopParent=None, parentLoopCondition=None):
         print(node.__slots__)
         print()
 
-    for obj in nodeOut:
-        if isinstance(obj, Command):
-            obj.tags.append(id(node))
+    if t != c_ast.ID:
+        for obj in nodeOut:
+            if isinstance(obj, Command) and obj.tag == None:
+                obj.tag = id(node)
 
     return nodeOut
 
@@ -718,8 +720,9 @@ def compileScript(func):
     script.insert(0, Command(2, [argCount, len(localVars)]))
     script.append(Command(3))
     for obj in script:
-        if isinstance(obj, Command):
-            obj.tags.append(id(func))
+        if isinstance(obj, Command) and obj.tag == None:
+            obj.tag = id(func)
+    nodeRanges[hex(id(func))] = func.coord.line
     return script
 
 # Thanks Triptych https://stackoverflow.com/questions/1265665/python-check-if-a-string-represents-an-int-without-using-try-except
@@ -738,9 +741,10 @@ def _RepresentsFloat(s):
         return False
 
 def compileAST(ast):
-    global args, msc, refs
+    global args, msc, refs, nodeRanges, lineOffsets
     refs = FileRefs()
     msc = MscFile()
+    nodeRanges = {}
     for decl in ast.ext:
         if isinstance(decl, c_ast.Decl):
             if decl.init != None:
@@ -767,6 +771,7 @@ def compileAST(ast):
             msc.scripts.append(newScript)
 
     print(msc)
+    print(nodeRanges)
 
 # Parse and compile from a string
 def compileString(fileText):
