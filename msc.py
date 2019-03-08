@@ -359,7 +359,7 @@ class Command:
         self.paramSize = 0
         self.commandPosition = 0
         self.debugString = None
-        self.tag = None
+        self.lineNum = None
 
     def __len__(self):
         return getSizeFromFormat(COMMAND_FORMAT[self.command]) + 1
@@ -391,21 +391,14 @@ class Command:
             else:
                 params += str(self.parameters[i])
             if i != len(self.parameters) - 1:
-                params += ', '
+                params += ','
         return params
 
     def __str__(self):
-        if self.pushBit:
-            temp = ' -> '
-        else:
-            temp = '    '
-
-        com = "{0:0{1}x}".format(self.commandPosition,8).upper()+':'+temp+' '+COMMAND_NAMES[self.command]+' '
-        if len(com) < 37:
-            com += (37 - len(com)) * ' '
+        com = f'{self.lineNum} '+COMMAND_NAMES[self.command]+('.' if self.pushBit else '')+' '
         if self.debugString != None:
             return com+self.strParams()+'   #'+self.debugString
-        return f"# {hex(self.tag) if self.tag != None else ''}\n"+com+self.strParams()
+        return com+self.strParams()
 
 class MscScript:
     def __init__(self):

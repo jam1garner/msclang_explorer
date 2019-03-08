@@ -1,5 +1,6 @@
 from msc import *
 from argparse import ArgumentParser
+import json
 # Try and install pycparser if it's not found 
 try:
     from pycparser import c_parser, c_ast, parse_file
@@ -21,6 +22,7 @@ import math
 import struct
 from subprocess import Popen, PIPE
 import os.path
+import sys
 from xml_info import MscXmlInfo, VariableLabel, getXmlInfoPath
 
 # Add to this as you see reasonable
@@ -285,7 +287,7 @@ def isCommandFloat(cmd, lookingFor):
 
 # Take a abstract syntax tree node and recursively compile it
 def compileNode(node, loopParent=None, parentLoopCondition=None):
-    global refs, localVars, localVarTypes, args, xmlInfo, nodeRanges
+    global refs, localVars, localVarTypes, args, xmlInfo
 
     nodeOut = []
 
@@ -322,7 +324,6 @@ def compileNode(node, loopParent=None, parentLoopCondition=None):
                 i += 1
 
     t = type(node)
-    nodeRanges[hex(id(node))] = node.coord.line
 
     # Check the type, depending on which type it is compile as it should
     # If an argument needs to be compiled, recursively call compile on the node
@@ -703,8 +704,8 @@ def compileNode(node, loopParent=None, parentLoopCondition=None):
 
     if t != c_ast.ID:
         for obj in nodeOut:
-            if isinstance(obj, Command) and obj.tag == None:
-                obj.tag = id(node)
+            if isinstance(obj, Command) and obj.lineNum == None:
+                obj.lineNum = node.coord.line
 
     return nodeOut
 
@@ -720,9 +721,8 @@ def compileScript(func):
     script.insert(0, Command(2, [argCount, len(localVars)]))
     script.append(Command(3))
     for obj in script:
-        if isinstance(obj, Command) and obj.tag == None:
-            obj.tag = id(func)
-    nodeRanges[hex(id(func))] = func.coord.line
+        if isinstance(obj, Command) and obj.lineNum == None:
+            obj.lineNum = func.coord.line
     return script
 
 # Thanks Triptych https://stackoverflow.com/questions/1265665/python-check-if-a-string-represents-an-int-without-using-try-except
@@ -770,15 +770,27 @@ def compileAST(ast):
             newScript.name = decl.decl.name
             msc.scripts.append(newScript)
 
-    print(msc)
-    print(nodeRanges)
+    print(json.dumps(
+        {
+            "scripts": [
+                {
+                    "name": script.name,
+                    "commands": [
+                        str(command).strip() for command in script
+                    ]
+                } for script in msc
+            ],
+            "strings": [
+                string for string in msc.strings
+            ]
+        }
+    ))
 
 # Parse and compile from a string
 def compileString(fileText):
     global args, msc, refs, commentChanges
     parser = c_parser.CParser()
     text, commentChanges = removeComments(fileText)
-    print(text)
     ast = parser.parse(text, filename='<none>')
     compileAST(ast)
 
@@ -794,16 +806,14 @@ def main(arguments):
     xmlInfo = MscXmlInfo(xmlPath)
     for s in xmlInfo.syscalls:
         syscalls[s.name] = s.id
-    for file in args.files:
-        if args.filename == None:
-            args.filename = os.path.basename(os.path.splitext(file)[0]) + '.mscsb'
-        with open(file, 'r') as f:
-            compileString(f.read())
+
+    f = sys.stdin
+    compileString(f.read())
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="Compile msC to MSC bytecode")
-    parser.add_argument('files', metavar='files', type=str, nargs='+',
-                        help='files to compile')
+    #parser.add_argument('files', metavar='files', type=str, nargs='+',
+    #                    help='files to compile')
     parser.add_argument('-o', dest='filename', help='Filename to output to')
     parser.add_argument('-pp', dest='preprocessor', help='Preprocessor to use')
     parser.add_argument('-a', '--autocast', dest='autocast', action='store_true', help='Autocast between int and float types when relevant (Note: don\'t use with decompiled files)')
