@@ -4,6 +4,7 @@ import json
 # Try and install pycparser if it's not found 
 try:
     from pycparser import c_parser, c_ast, parse_file
+    from pycparser.plyparser import ParseError
 except ImportError:
     if input("Pycparser not found, install with pip? (y/n)").startswith('y'):
         try:
@@ -784,7 +785,8 @@ def compileAST(ast):
             ],
             "strings": [
                 string for string in msc.strings
-            ]
+            ],
+            "error_type": 0
         }
     ))
 
@@ -793,8 +795,30 @@ def compileString(fileText):
     global args, msc, refs, commentChanges
     parser = c_parser.CParser()
     text, commentChanges = removeComments(fileText)
-    ast = parser.parse(text, filename='<none>')
-    compileAST(ast)
+    try:
+        ast = parser.parse(text, filename='<none>')
+        compileAST(ast)
+    except CompilerError as c:
+        print(json.dumps(
+            {
+                "error": str(c),
+                "error_type": 1
+            }
+        ))
+    except ParseError as p:
+        print(json.dumps(
+            {
+                "error": "parser error",
+                "error_type": 2
+            }
+        ))
+    except Exception as e:
+        print(json.dumps(
+            {
+                "error": "internal error",
+                "error_type": 3
+            }
+        ))
 
 # Compile contents of the file to a string
 def main(arguments):
