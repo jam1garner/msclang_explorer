@@ -324,6 +324,7 @@ def compileNode(node, loopParent=None, parentLoopCondition=None):
                 i += 1
 
     t = type(node)
+    is_func_id = False
 
     # Check the type, depending on which type it is compile as it should
     # If an argument needs to be compiled, recursively call compile on the node
@@ -469,6 +470,7 @@ def compileNode(node, loopParent=None, parentLoopCondition=None):
             if node.name in global_constants:
                 nodeOut.append(Command(0xA, [global_constants[node.name]]))
             elif node.name in refs.functions:
+                is_func_id = True
                 nodeOut.append(Command(0xA, [node.name]))
             else:
                 raise CompilerError("Error at %s: Invalid reference."%str(node.coord))
@@ -702,7 +704,7 @@ def compileNode(node, loopParent=None, parentLoopCondition=None):
         print(node.__slots__)
         print()
 
-    if t != c_ast.ID:
+    if t != c_ast.ID or not is_func_id:
         for obj in nodeOut:
             if isinstance(obj, Command) and obj.lineNum == None:
                 obj.lineNum = node.coord.line
