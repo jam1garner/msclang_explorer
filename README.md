@@ -1,6 +1,6 @@
 # msclang_explorer
 
-Fork of msclang designed for compiler exploration
+Fork of msclang designed for compiler exploration, see in action: https://jam1.re
 
 ### Requirements
 
